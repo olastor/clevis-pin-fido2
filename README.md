@@ -1,6 +1,6 @@
 # clevis-pin-fido2
 
-⚠️ **Use at own risk and consider this plugin to be experimental** ⚠️
+⚠️ **Use at own risk and consider this plugin to be experimental right now.** ⚠️
 
 ## Requirements
 
