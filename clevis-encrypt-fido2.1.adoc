@@ -66,11 +66,11 @@ This command uses the following configuration properties:
   Whether or not to ask the authenticator to require user presence.
   Default: true.
 
-* *uv* (string) :
+* *uv* (boolean) :
   Whether or not to ask the authenticator to require user verification.
   Default: true.
 
-* *pin* (string) :
+* *pin* (boolean) :
   Whether or not to ask the authenticator to require the PIN and user verification.
   Default: false.
 

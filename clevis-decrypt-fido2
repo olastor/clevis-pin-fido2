@@ -2,6 +2,16 @@
 
 set -eu
 
+[ $# -eq 1 ] && [ "$1" == "--summary" ] && exit 2
+
+if [ -t 0 ]; then
+    exec >&2
+    echo
+    echo "Usage: clevis decrypt fido2 < JWE > PLAINTEXT"
+    echo
+    exit 2
+fi
+
 read -r -d . hdr64
 if ! hdr="$(jose fmt --quote="$hdr64" --string --b64load --object --output=-)" ; then
     echo 'JWE header corrupt' >&2
