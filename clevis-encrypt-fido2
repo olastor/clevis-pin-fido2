@@ -24,7 +24,7 @@ if [ -t 0 ]; then
     echo
     echo '  up:       <boolean>   Whether or not to enable user presence. (Default: true)'
     echo
-    echo '  uv:       <boolean>   Whether or not to enable user verification. (Default: true)'
+    echo '  uv:       <boolean>   Whether or not to enable user verification. (Default: false)'
     echo
     echo '  pin:      <boolean>   Whether or not to require a PIN. (Default: false)'
     echo
@@ -61,9 +61,17 @@ function generate_hmac () {
   cred_id="$3"
   hmac_salt="$4"
 
+  f2a_uv="-t uv=${uv}"
+  if [ "${uv}" == "false" ] && ! fido2-token -I "${fido2_token}" | grep -qE "options:.* uv" ; then
+    # Yubikey 5 NFC w/ libfido2 v1.14.0 does _not_ allow to explicitly specify "-t uv=true|false" below
+    # (cf. https://github.com/Yubico/libfido2/issues/642#issuecomment-1303673367: "`uv` option [...] controls
+    # device-native UV such as biometrics or on-authenticator PIN pad")
+    f2a_uv=""
+  fi
+
   client_hash="$(dd if=/dev/urandom bs=1 count=32 status=none | base64 -w0)"
   hmac="$(printf '%s\n%s\n%s\n%s\n' "${client_hash}" "${rp_id}" "${cred_id}" "${hmac_salt}" | \
-    fido2-assert -G -h -t "uv=${uv}" -t "up=${up}" -t "pin=${pin}" "${device}" | \
+    fido2-assert -G -h ${f2a_uv} -t "up=${up}" -t "pin=${pin}" "${device}" | \
     head -n5 | tail -n1 | base64 -d | jose b64 enc -I -)" >&2
 
   echo -n "${hmac}"
@@ -77,7 +85,7 @@ if ! cfg="$(jose fmt -j- -Oo- <<< "$1" 2>/dev/null)"; then
 fi
 
 type="$(jose fmt -j- -Og type -Bo- <<< "$cfg")" || type='es256'
-uv="$(jose fmt -j- -Og uv -Bo- <<< "$cfg")" || uv='true'
+uv="$(jose fmt -j- -Og uv -Bo- <<< "$cfg")" || uv='false'
 up="$(jose fmt -j- -Og up -Bo- <<< "$cfg")" || up='true'
 pin="$(jose fmt -j- -Og pin -Bo- <<< "$cfg")" || pin='false'
 rp_id="$(jose fmt -j- -Og rp_id -Su- <<< "$cfg")" || rp_id='fido2.clevis'

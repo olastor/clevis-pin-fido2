@@ -68,7 +68,7 @@ This command uses the following configuration properties:
 
 * *uv* (boolean) :
   Whether or not to ask the authenticator to require user verification.
-  Default: true.
+  Default: false.
 
 * *pin* (boolean) :
   Whether or not to ask the authenticator to require the PIN and user verification.

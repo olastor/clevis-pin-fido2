@@ -63,8 +63,16 @@ fido2_token="$(echo "${fido2_tokens}" | head -n1 | cut -d':' -f1)"
 
 client_hash="$(dd if=/dev/urandom bs=1 count=32 status=none | base64 -w0)"
 
+f2a_uv="-t uv=${uv}"
+if [ "${uv}" == "false" ] && ! fido2-token -I "${fido2_token}" | grep -qE "options:.* uv" ; then
+  # Yubikey 5 NFC w/ libfido2 v1.14.0 does _not_ allow to explicitly specify "-t uv=true|false" below
+  # (cf. https://github.com/Yubico/libfido2/issues/642#issuecomment-1303673367: "`uv` option [...] controls
+  # device-native UV such as biometrics or on-authenticator PIN pad")
+  f2a_uv=""
+fi
+
 hmac="$(printf '%s\n%s\n%s\n%s\n' "${client_hash}" "${rp_id}" "${cred_id}" "${hmac_salt}" | \
-  fido2-assert -G -t "uv=${uv}" -t "up=${up}" -t "pin=${pin}" -h "${fido2_token}" | \
+  fido2-assert -G -h ${f2a_uv} -t "up=${up}" -t "pin=${pin}" "${fido2_token}" | \
   head -n5 | tail -n1 | base64 -d | jose b64 enc -I -)"
 
 # use the secret in a key wrapping key
