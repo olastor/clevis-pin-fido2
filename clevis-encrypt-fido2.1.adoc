@@ -80,6 +80,9 @@ This command uses the following configuration properties:
   option, you should be sure that the token's slot remains the same, as the decrypt
   command will not be able to find the device, otherwise.
 
+* *timeout* (string) :
+  The number of seconds to wait for a device to become available.
+  Default: 30.
 == SEE ALSO
 
 link:clevis-decrypt.1.adoc[*clevis-decrypt*(1)]

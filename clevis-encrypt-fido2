@@ -30,6 +30,8 @@ if [ -t 0 ]; then
     echo
     echo '  device:   <string>    Option to hardcode a device to use.'
     echo
+    echo '  timeout:  <string>    Number of seconds to wait for device to become available (Default: 30)'
+    echo
     exit 2
 fi
 
@@ -70,6 +72,7 @@ function generate_hmac () {
   fi
 
   client_hash="$(dd if=/dev/urandom bs=1 count=32 status=none | base64 -w0)"
+  # shellcheck disable=SC2086
   hmac="$(printf '%s\n%s\n%s\n%s\n' "${client_hash}" "${rp_id}" "${cred_id}" "${hmac_salt}" | \
     fido2-assert -G -h ${f2a_uv} -t "up=${up}" -t "pin=${pin}" "${device}" | \
     head -n5 | tail -n1 | base64 -d | jose b64 enc -I -)" >&2
@@ -80,7 +83,7 @@ function generate_hmac () {
 cfg=''
 
 if ! cfg="$(jose fmt -j- -Oo- <<< "$1" 2>/dev/null)"; then
-    echo "Error: Configuration is malformed!" >&2
+    echo "${0##*/}: Error: Configuration is malformed!" >&2
     exit 1
 fi
 
@@ -88,22 +91,42 @@ type="$(jose fmt -j- -Og type -Bo- <<< "$cfg")" || type='es256'
 uv="$(jose fmt -j- -Og uv -Bo- <<< "$cfg")" || uv='false'
 up="$(jose fmt -j- -Og up -Bo- <<< "$cfg")" || up='true'
 pin="$(jose fmt -j- -Og pin -Bo- <<< "$cfg")" || pin='false'
+timeout="$(jose fmt -j- -Og timeout -Bo- <<< "$cfg")" || timeout='30'
 rp_id="$(jose fmt -j- -Og rp_id -Su- <<< "$cfg")" || rp_id='fido2.clevis'
+fido2_token="$(jose fmt -j- -Og device -u- <<< "$cfg")" || fido2_token=''
 
-if ! fido2_token="$(jose fmt -j- -Og device -u- <<< "$cfg")"; then
-  fido2_tokens="$(fido2-token -L)"
-
-  if [ -z "${fido2_tokens}" ]; then
-    echo "Please insert your FIDO2 token." >&2
+show_msg=1
+timeout1="${timeout}"
+while [[ ! -c "${fido2_token}" ]]; do
+  sleep 1
+  if [[ -z "${fido2_token}" ]]; then
+    fido2_tokens="$(fido2-token -L)"
+    if [[ -z "${fido2_tokens}" && show_msg -eq 1 ]]; then
+      echo "${0##*/}: Please insert your FIDO2 token" >&2
+      show_msg=0
+    fi
+    fido2_token="$(echo "${fido2_tokens}" | head -n1 | cut -d':' -f1)"
+    num_tokens="$(echo "${fido2_tokens}" | wc -l)"
+    if ((num_tokens > 1)); then
+      echo "${0##*/}: Warning: There are multiple tokens. Will use the first one (${fido2_token})." >&2
+    fi
+  else
+    if [[ show_msg -eq 1 ]]; then
+      echo "${0##*/}: Please insert your specified FIDO2 token ${fido2_token}" >&2
+      show_msg=0
+    fi
+  fi
+  # see 'sleep 1' above--we're keeping things simple here (cf. https://unix.stackexchange.com/a/156133/238272)
+  timeout1=$((timeout1-1))
+  if [[ ${timeout1} -lt 1 ]]; then
+    if [[ -z "${fido2_token}" ]]; then
+      echo "${0##*/}: Error: No FIDO2 token found within ${timeout} seconds." >&2
+    else
+      echo "${0##*/}: Error: specified FIDO2 token ${fido2_token} not found within ${timeout} seconds." >&2
+    fi
     exit 1
   fi
-
-  fido2_token="$(echo "${fido2_tokens}" | head -n1 | cut -d':' -f1)"
-  num_tokens="$(echo "${fido2_tokens}" | wc -l)"
-  if ((num_tokens > 1)); then
-    echo "Warning: There are multiple tokens. Will use the first one (${fido2_token})." >&2
-  fi
-fi
+done
 
 cred_id="$(jose fmt -j- -Og cred_id -Su- <<< "$cfg")" || cred_id="$(create_credential "${fido2_token}" "${rp_id}" "${type}")"
 
@@ -114,7 +137,7 @@ hmac_salt="$(dd if=/dev/urandom bs=1 count=32 status=none | base64 -w0)"
 hmac="$(generate_hmac "${fido2_token}" "${rp_id}" "${cred_id}" "${hmac_salt}")"
 
 if [ -z "${hmac}" ]; then
-  echo "Error: could not generate key."
+  echo "${0##*/}: Error: could not generate key." >&2
   exit 1
 fi
 
@@ -129,5 +152,12 @@ jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${cred_id}" -s cre
 jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${uv}" -s uv -UUUUo-)"
 jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${up}" -s up -UUUUo-)"
 jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${pin}" -s pin -UUUUo-)"
+jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${timeout}" -s timeout -UUUUo-)"
+if [[ ! "${fido2_token}" =~ /dev/hid ]]; then
+  # this is an explicitly specified, non-generic device name (tied to a specific fido2 key);
+  # it makes sense to store and re-use this in clevis-decrypt-fido2
+  # (see 'sss' pin type which can in turn include multiple 'fido2' pins)
+  jwe="$(jose fmt -j "$jwe" -g protected -g clevis -g fido2 -q "${fido2_token}" -s device -UUUUo-)"
+fi
 
 exec jose jwe enc -i- -k- -I- -c < <(echo -n "$jwe$jwk"; /bin/cat)
