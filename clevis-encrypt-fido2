@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SUMMARY="Encrypts using a fido2 token that supports the hmac-secret extension"
-DEFAULT_TIMEOUT='50'
+DEFAULT_TIMEOUT='120'
 
 if [ "$1" == "--summary" ]; then
     echo "$SUMMARY"

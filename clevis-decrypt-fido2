@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DEFAULT_TIMEOUT='50'
+DEFAULT_TIMEOUT='120'
 
 set -eu
 
