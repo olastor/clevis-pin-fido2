@@ -11,7 +11,7 @@ fi
 if [ -t 0 ]; then
     exec >&2
     echo
-    echo "Usage: clevis encrypt fido2 < PLAINTEXT > JWE"
+    echo "Usage: clevis encrypt fido2 CONFIG < PLAINTEXT > JWE"
     echo
     echo "$SUMMARY"
     echo
