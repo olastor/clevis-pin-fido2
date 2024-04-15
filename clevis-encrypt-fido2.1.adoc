@@ -101,6 +101,40 @@ This command uses the following configuration properties:
   To override the timeout temporarily use the TIMEOUT env variable.
   Default: 50.
 
+== EXAMPLES
+
+The following shows how you can assign your Yubikey a fixed name using its serial number in order to specify it in the "device" option (does not work with fido2-only Yubikeys).
+
+First, create the following script at /lib/udev/yubikey-name (don't forget to make it executable):
+
+  #!/bin/bash
+
+  # This script tries to create a deterministic name for a Yubikey. The name is "yubikey_${last two digits of serial}".
+  # The serial is not fully included on purpose to improve privacy. There's a non-zero chance you could have two keys
+  # with the same name.
+  #
+  # WARNING: This script DOES NOT work with fido2-only Yubikeys since they don't have a serial number!
+
+  YUBIKEY_NAME=""
+  if [[ -n "$(command -v ykman)" ]]; then
+    # if ykman is already running, chances are that the below "ykman --diagnose" will not yield the desired serial number (required channel might be busy)
+    # (this usually works if you wait five seconds between inserting two Yubikey devices, but might become a problem at boot time if they're already inserted)
+    OUTPUT="$(ykman --diagnose)"
+    SERIAL="$(echo "${OUTPUT}" | grep -B1 -A20 "${DEVNAME}" | tr '\n' ' ' | grep "HID FIDO" | sed -e 's/.*serial://' -e 's/version:.*//' -e 's/ //g')"
+    [[ "${SERIAL,,}" == "none" ]] && SERIAL=""
+    [[ -n "${SERIAL}" ]] && YUBIKEY_NAME="yubikey_${SERIAL: -2}"
+  fi
+
+  printf "%s" "${YUBIKEY_NAME:-unknown}"
+
+Then, create a new udev rule (/etc/udev/rules.d/99-yubikey.rules)
+
+  ACTION=="add|change", KERNEL=="hidraw[0-9]*", ENV{ID_FIDO_TOKEN}=="1", PROGRAM="/lib/udev/yubikey-name", SYMLINK+="input/by-id/$result"
+
+Your Yubikey should automatically be linked under a fixed path, e.g. "/dev/input/by-id/yubikey_12". This can be used as a "device" option. For example:
+
+echo "secret message" | clevis-encrypt-fido2 '{"device": "/dev/input/by-id/yubikey_12"}'
+
 == SEE ALSO
 
 link:clevis-decrypt.1.adoc[*clevis-decrypt*(1)]
