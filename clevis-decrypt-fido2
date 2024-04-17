@@ -1,5 +1,7 @@
 #!/bin/bash
 
+DEFAULT_TIMEOUT='120'
+
 set -eu
 
 [ $# -eq 1 ] && [ "$1" == "--summary" ] && exit 2
@@ -12,54 +14,73 @@ if [ -t 0 ]; then
     exit 2
 fi
 
+get_parm () {
+  elements="${1//\// --get }"
+  mandatory="$2"
+  #shellcheck disable=SC2086
+  if ! output="$(jose fmt --json="${hdr}" ${elements} --unquote=-)" && [[ ${mandatory} -eq 1 ]]; then
+    echo "${0##*/}: JWE missing '${elements##* }' header parameter!" >&2
+    exit 1
+  fi
+  echo "${output}"
+}
+
+
 read -r -d . hdr64
 if ! hdr="$(jose fmt --quote="$hdr64" --string --b64load --object --output=-)" ; then
-    echo 'JWE header corrupt' >&2
-    exit 1
-fi
-if [ "$(jose fmt --json="$hdr" --get clevis --get pin --unquote=-)" != 'fido2' ] ; then
-    echo 'JWE pin mismatch!' >&2
-    exit 1
-fi
-if ! hmac_salt="$(jose fmt --json="$hdr" --get clevis --get fido2 --get hmac_salt --unquote=-)" ; then
-    echo "JWE missing 'hmac_salt' header parameter!" >&2
+    echo "${0##*/}: JWE header corrupt!" >&2
     exit 1
 fi
 
-if ! rp_id="$(jose fmt --json="$hdr" --get clevis --get fido2 --get rp_id --unquote=-)" ; then
-    echo "JWE missing 'rp_id' header parameter!" >&2
-    exit 1
-fi
-if ! cred_id="$(jose fmt --json="$hdr" --get clevis --get fido2 --get cred_id --unquote=-)" ; then
-    echo "JWE missing 'cred_id' header parameter!" >&2
-    exit 1
-fi
-if ! uv="$(jose fmt --json="$hdr" --get clevis --get fido2 --get uv --unquote=-)" ; then
-    echo "JWE missing 'uv' header parameter!" >&2
-    exit 1
-fi
-if ! up="$(jose fmt --json="$hdr" --get clevis --get fido2 --get up --unquote=-)" ; then
-    echo "JWE missing 'up' header parameter!" >&2
-    exit 1
-fi
-if ! pin="$(jose fmt --json="$hdr" --get clevis --get fido2 --get pin --unquote=-)" ; then
-    echo "JWE missing 'pin' header parameter!" >&2
+if [ "$(get_parm /clevis/pin 1)" != 'fido2' ] ; then
+    echo "${0##*/}: JWE pin mismatch!" >&2
     exit 1
 fi
 
-fido2_tokens="$(fido2-token -L)"
+hmac_salt="$(get_parm /clevis/fido2/hmac_salt 1)"
+rp_id="$(get_parm /clevis/fido2/rp_id 1)"
+cred_id="$(get_parm /clevis/fido2/cred_id 1)"
+uv="$(get_parm /clevis/fido2/uv 1)"
+up="$(get_parm /clevis/fido2/up 1)"
+pin="$(get_parm /clevis/fido2/pin 1)"
+timeout="$(get_parm /clevis/fido2/timeout 0)"
+device="$(get_parm /clevis/fido2/device 0)"
 
-if [ -z "${fido2_tokens}" ]; then
-  echo "Please insert your FIDO2 token." >&2
-  exit 1
-fi
+fido2_token="${FIDO2_TOKEN:-$device}"
 
-num_tokens="$(echo "${fido2_tokens}" | wc -l)"
-if ((num_tokens > 1)); then
-  echo "Warning: There are multiple tokens. Will use the first one." >&2
-fi
-
-fido2_token="$(echo "${fido2_tokens}" | head -n1 | cut -d':' -f1)"
+show_msg=1
+user_timeout="${TIMEOUT:-$timeout}"
+timeout1="${user_timeout:-$DEFAULT_TIMEOUT}"
+while [[ ! -c "${fido2_token}" ]]; do
+  sleep 1
+  if [[ -z "${fido2_token}" ]]; then
+    fido2_tokens="$(fido2-token -L)"
+    if [[ -z "${fido2_tokens}" && show_msg -eq 1 ]]; then
+      echo "${0##*/}: Please insert your FIDO2 token" >&2
+      show_msg=0
+    fi
+    fido2_token="$(echo "${fido2_tokens}" | head -n1 | cut -d':' -f1)"
+    num_tokens="$(echo "${fido2_tokens}" | wc -l)"
+    if ((num_tokens > 1)); then
+      echo "${0##*/}: Warning: There are multiple tokens. Will use the first one (${fido2_token})." >&2
+    fi
+  else
+    if [[ show_msg -eq 1 ]]; then
+      echo "${0##*/}: Please insert your specified FIDO2 token ${fido2_token} (if available)" >&2
+      show_msg=0
+    fi
+  fi
+  # see 'sleep 1' above--we're keeping things simple here (cf. https://unix.stackexchange.com/a/156133/238272)
+  timeout1=$((timeout1-1))
+  if [[ ${timeout1} -lt 1 ]]; then
+    if [[ -z "${fido2_token}" ]]; then
+      echo "${0##*/}: Error: No FIDO2 token found within ${timeout} seconds." >&2
+    else
+      echo "${0##*/}: Error: specified FIDO2 token ${fido2_token} not found within ${timeout} seconds." >&2
+    fi
+    exit 1
+  fi
+done
 
 client_hash="$(dd if=/dev/urandom bs=1 count=32 status=none | base64 -w0)"
 
@@ -71,6 +92,7 @@ if [ "${uv}" == "false" ] && ! fido2-token -I "${fido2_token}" | grep -qE "optio
   f2a_uv=""
 fi
 
+#shellcheck disable=SC2086
 hmac="$(printf '%s\n%s\n%s\n%s\n' "${client_hash}" "${rp_id}" "${cred_id}" "${hmac_salt}" | \
   fido2-assert -G -h ${f2a_uv} -t "up=${up}" -t "pin=${pin}" "${fido2_token}" | \
   head -n5 | tail -n1 | base64 -d | jose b64 enc -I -)"

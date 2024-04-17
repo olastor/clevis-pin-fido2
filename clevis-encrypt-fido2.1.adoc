@@ -53,9 +53,10 @@ This command uses the following configuration properties:
   Default: "es256".
 
 * *cred_id* (string) :
-  A credential id generated for the specific token. If not specified, a new
-  (non-discoverable) will be generated using the **fido2-cred** command. Please
-  note that the credential must have the "hmac-extension" enabled.
+  A base64-encoded credential ID generated with the specific token. If not specified, a new
+  (non-discoverable) will be generated using the **fido2-cred** command, requiring additional
+  verification of user presence (tapping on the token). Please note that the credential must
+  support the "hmac-secret" extension.
 
 * *rp_id* (string) :
   The reyling party id of the credential (that will be created or is provided via
@@ -75,10 +76,64 @@ This command uses the following configuration properties:
   Default: false.
 
 * *device* (string) :
-  The device, i.e., the fido2 token, to use (e.g., "/dev/hidraw0"). If not specified,
-  the first device from the list of connected tokens will be used. When setting this
-  option, you should be sure that the token's slot remains the same, as the decrypt
-  command will not be able to find the device, otherwise.
+  The device path to use (e.g., "/dev/input/by-id/my-yubikey") for
+  encryption and for every future decryption. The device path MUST NOT start with
+  "/dev/hid" (e.g., "/dev/hidraw5") since such paths are known to be ephemeral and not
+  suitable to identify a specific token long term. Use the environment variable FIDO2_TOKEN instead
+  to set the device path once without storing it as metadata (works for both encryption and decryption).
+
+  If you set both the "device" option and the env variable, then FIDO2_TOKEN will be used for
+  encryption, but the path of "device" will be stored in the metadata.
+
+  If neither the "device" option nor the FIDO2_TOKEN env variable is specified, the first device from
+  the list of connected tokens will be picked by default.
+
+  This option is likely needed if you want to use the "sss" pin with multiple fido2 pins.
+
+  PLEASE NOTE: Unlinkability of the ciphertext is lost if the "device" option contains an unique identifier
+  (such as a serial number). As a user, you are responsible to make the token available under the specified
+  path before or during the script is executed.
+
+  Default: ""
+
+* *timeout* (string) :
+  The number of seconds to wait for a device to become available for encryption AND every future decryption.
+  To override the timeout temporarily use the TIMEOUT env variable.
+  Default: 50.
+
+== EXAMPLES
+
+The following shows how you can assign your Yubikey a fixed name using its serial number in order to specify it in the "device" option (does not work with fido2-only Yubikeys).
+
+First, create the following script at /lib/udev/yubikey-name (don't forget to make it executable):
+
+  #!/bin/bash
+
+  # This script tries to create a deterministic name for a Yubikey. The name is "yubikey_${last two digits of serial}".
+  # The serial is not fully included on purpose to improve privacy. There's a non-zero chance you could have two keys
+  # with the same name.
+  #
+  # WARNING: This script DOES NOT work with fido2-only Yubikeys since they don't have a serial number!
+
+  YUBIKEY_NAME=""
+  if [[ -n "$(command -v ykman)" ]]; then
+    # if ykman is already running, chances are that the below "ykman --diagnose" will not yield the desired serial number (required channel might be busy)
+    # (this usually works if you wait five seconds between inserting two Yubikey devices, but might become a problem at boot time if they're already inserted)
+    OUTPUT="$(ykman --diagnose)"
+    SERIAL="$(echo "${OUTPUT}" | grep -B1 -A20 "${DEVNAME}" | tr '\n' ' ' | grep "HID FIDO" | sed -e 's/.*serial://' -e 's/version:.*//' -e 's/ //g')"
+    [[ "${SERIAL,,}" == "none" ]] && SERIAL=""
+    [[ -n "${SERIAL}" ]] && YUBIKEY_NAME="yubikey_${SERIAL: -2}"
+  fi
+
+  printf "%s" "${YUBIKEY_NAME:-unknown}"
+
+Then, create a new udev rule (/etc/udev/rules.d/99-yubikey.rules)
+
+  ACTION=="add|change", KERNEL=="hidraw[0-9]*", ENV{ID_FIDO_TOKEN}=="1", PROGRAM="/lib/udev/yubikey-name", SYMLINK+="input/by-id/$result"
+
+Your Yubikey should automatically be linked under a fixed path, e.g. "/dev/input/by-id/yubikey_12". This can be used as a "device" option. For example:
+
+echo "secret message" | clevis-encrypt-fido2 '{"device": "/dev/input/by-id/yubikey_12"}'
 
 == SEE ALSO
 
