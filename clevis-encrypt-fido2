@@ -38,10 +38,10 @@ if [ -t 0 ]; then
     echo '                        with "/dev/hid" must be specified in the FIDO2_TOKEN env variable instead.'
     echo '                        See man page "clevis-encrypt-fido2" for more information. (Default: "")'
     echo
-    echo '  timeout:  <string>    Number of seconds to wait for device to become available.'
+    echo '  timeout:  <number>    Number of seconds to wait for device to become available.'
     echo '                        Timeout will be applied for encryption and every decryption.'
     echo '                        Can be overridden temporarily via the TIMEOUT env variable.'
-    echo '                        (Default: 50)'
+    echo '                        (Default: 120)'
     echo
     exit 2
 fi
@@ -103,7 +103,7 @@ type="$(jose fmt -j- -Og type -Bo- <<< "$cfg")" || type='es256'
 uv="$(jose fmt -j- -Og uv -Bo- <<< "$cfg")" || uv='false'
 up="$(jose fmt -j- -Og up -Bo- <<< "$cfg")" || up='true'
 pin="$(jose fmt -j- -Og pin -Bo- <<< "$cfg")" || pin='false'
-timeout="$(jose fmt -j- -Og timeout -Bo- <<< "$cfg")" || timeout=''
+timeout="$(jose fmt -j- -Og timeout -No- <<< "$cfg")" || timeout=''
 rp_id="$(jose fmt -j- -Og rp_id -Su- <<< "$cfg")" || rp_id='fido2.clevis'
 device="$(jose fmt -j- -Og device -u- <<< "$cfg")" || device=''
 
