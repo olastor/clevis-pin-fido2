@@ -103,9 +103,9 @@ type="$(jose fmt -j- -Og type -Bo- <<< "$cfg")" || type='es256'
 uv="$(jose fmt -j- -Og uv -Bo- <<< "$cfg")" || uv='false'
 up="$(jose fmt -j- -Og up -Bo- <<< "$cfg")" || up='true'
 pin="$(jose fmt -j- -Og pin -Bo- <<< "$cfg")" || pin='false'
-timeout="$(jose fmt -j- -Og timeout -No- <<< "$cfg")" || timeout=''
 rp_id="$(jose fmt -j- -Og rp_id -Su- <<< "$cfg")" || rp_id='fido2.clevis'
-device="$(jose fmt -j- -Og device -u- <<< "$cfg")" || device=''
+device="$(jose fmt -j- -Og device -Su- <<< "$cfg")" || device=''
+timeout="$(jose fmt -j- -Og timeout -No- <<< "$cfg" || jose fmt -j- -Og timeout -Su- <<< "$cfg")" || timeout=''
 
 if [[ "${device}" =~ /dev/hid ]]; then
   echo "${0##*/}: Error: If the device path is ephemeral and starts with '/dev/hid', the FIDO2_TOKEN env variable must be used instead." >&2
